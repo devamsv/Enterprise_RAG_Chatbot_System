@@ -1,4 +1,4 @@
-# 🤖 RAG Chatbot - Production Ready
+# 🤖 Enterprise_RAG_Chatbot_System
 
 A **production-grade** Retrieval-Augmented Generation (RAG) chatbot that allows you to upload documents (PDF, TXT, DOCX) and ask intelligent questions using natural language processing.
 
@@ -23,7 +23,7 @@ A **production-grade** Retrieval-Augmented Generation (RAG) chatbot that allows 
 
 ```bash
 # 1. Clone/download the project
-cd RAG_ChatBot
+cd Enterprise_RAG_Chatbot_System  # or your project directory
 
 # 2. Create virtual environment
 python -m venv venv
@@ -53,7 +53,7 @@ The app opens at `http://localhost:8501`
 ## 🏗️ Project Structure
 
 ```
-RAG_ChatBot/
+Enterprise_RAG_Chatbot_System/
 ├── rag_chatbot.py          # Main Streamlit application
 ├── config.py               # Configuration management
 ├── utils.py                # Utility functions
@@ -123,7 +123,7 @@ Documents → Load → Split into Chunks → Embed → Store in FAISS
 | Text | `.txt` | ✅ Supported (UTF-8, Latin-1) |
 | Word | `.docx`, `.doc` | ✅ Supported |
 
-## 🚀 Production Deployment
+## 🚀 Deployment Notes
 
 ### Logging
 Application includes comprehensive logging:
@@ -137,11 +137,10 @@ Application includes comprehensive logging:
 - Automatic cleanup of temporary files
 - File encoding fallback (UTF-8 → Latin-1)
 
-### Performance Optimizations
-- FAISS for fast vector similarity search
-- Minimal model dependencies (FakeEmbeddings)
-- Memory-efficient streaming
-- Caching of processed documents
+### Performance Characteristics
+- In-memory FAISS for fast vector similarity search
+- Default `FakeEmbeddings` for quick demos and testing
+- Session-level caching of processed documents in Streamlit
 
 ## 🔐 Security
 

@@ -37,9 +37,11 @@ from utils import (
 # Setup logging
 logger = setup_logging(config.LOG_LEVEL)
 
-# Validate configuration
+# Validate configuration early and fail fast in the UI
 if not config.OPENAI_API_KEY:
     logger.error("OPENAI_API_KEY not found in environment variables")
+    st.error("OPENAI_API_KEY not configured. Please set it in your .env file.")
+    st.stop()
 
 # Page configuration
 st.set_page_config(
