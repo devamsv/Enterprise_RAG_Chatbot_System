@@ -5,7 +5,7 @@ A **production-grade** Retrieval-Augmented Generation (RAG) chatbot that allows 
 ## ✨ Features
 
 - **Multi-format Support**: Upload PDF, TXT, DOCX documents
-- **AI-Powered**: Uses Groq's LLaMA 3.1 model for intelligent responses
+- **AI-Powered**: Uses OpenAI's GPT model for intelligent responses
 - **Source Citations**: View the exact passages used to generate answers
 - **Clean UI**: Intuitive Streamlit-based interface
 - **Context-Aware**: Answers strictly based on your documents
@@ -17,7 +17,7 @@ A **production-grade** Retrieval-Augmented Generation (RAG) chatbot that allows 
 
 ### Prerequisites
 - Python 3.8+
-- Groq API key (free from [console.groq.com](https://console.groq.com))
+- OpenAI API key (from [platform.openai.com](https://platform.openai.com))
 
 ### Installation
 
@@ -35,7 +35,7 @@ pip install -r requirements.txt
 
 # 4. Setup environment
 cp .env.example .env
-# Edit .env and add your GROQ_API_KEY
+# Edit .env and add your OPENAI_API_KEY
 
 # 5. Run the application
 streamlit run rag_chatbot.py
@@ -77,7 +77,7 @@ RETRIEVAL_K = 3             # Number of sources to retrieve
 
 # Language Model
 LLM_TEMPERATURE = 0.0       # 0 = deterministic, 1 = random
-GROQ_MODEL = "llama-3.1-8b-instant"
+OPENAI_MODEL = "gpt-4.1-mini"
 
 # Logging
 LOG_LEVEL = "INFO"          # DEBUG, INFO, WARNING, ERROR
@@ -100,10 +100,10 @@ Documents → Load → Split into Chunks → Embed → Store in FAISS
 
 ## 🔑 Getting API Key
 
-1. Visit [console.groq.com](https://console.groq.com)
+1. Visit [platform.openai.com](https://platform.openai.com)
 2. Sign up or login
 3. Create new API key
-4. Add to `.env`: `GROQ_API_KEY=your_key_here`
+4. Add to `.env`: `OPENAI_API_KEY=your_key_here`
 
 ## 🐛 Troubleshooting
 
@@ -157,7 +157,7 @@ Application includes comprehensive logging:
 |-----------|-----------|---------|
 | UI | Streamlit | Web interface |
 | RAG | LangChain | Orchestration |
-| LLM | Groq API | Language model |
+| LLM | OpenAI API | Language model |
 | Vectors | FAISS | Similarity search |
 | Embeddings | FakeEmbeddings | Vector representation |
 | PDF | PyPDF | PDF processing |
@@ -187,7 +187,7 @@ Note: This requires additional dependencies and disk space.
 Core packages:
 - `streamlit>=1.28.0` - UI framework
 - `langchain>=0.1.0` - RAG framework
-- `langchain-groq>=0.0.6` - Groq integration
+- `langchain-openai` - OpenAI integration
 - `faiss-cpu>=1.7.4` - Vector search
 - `pypdf>=4.0.1` - PDF reading
 - `docx2txt>=0.8` - DOCX reading  
@@ -253,6 +253,6 @@ Contributions welcome! Areas for improvement:
 
 ---
 
-**Built with** ❤️ using LangChain, Streamlit, and Groq
+**Built with** ❤️ using LangChain, Streamlit, and OpenAI
 
 Last Updated: February 2024

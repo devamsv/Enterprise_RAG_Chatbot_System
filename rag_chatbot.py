@@ -4,7 +4,7 @@ RAG Chatbot with Streamlit UI
 A production-ready Retrieval-Augmented Generation chatbot.
 
 Supports PDF, TXT, DOCX, and other document formats.
-Uses Groq's LLaMA model for intelligent responses.
+Uses OpenAI's GPT model for intelligent responses.
 """
 
 import logging
@@ -22,7 +22,7 @@ from langchain_community.document_loaders import (
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings.fake import FakeEmbeddings
-from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
@@ -34,13 +34,12 @@ from utils import (
     truncate_text,
     get_file_extension
 )
-
 # Setup logging
 logger = setup_logging(config.LOG_LEVEL)
 
 # Validate configuration
-if not config.GROQ_API_KEY:
-    logger.error("GROQ_API_KEY not found in environment variables")
+if not config.OPENAI_API_KEY:
+    logger.error("OPENAI_API_KEY not found in environment variables")
 
 # Page configuration
 st.set_page_config(
@@ -178,13 +177,12 @@ def process_documents(uploaded_files: List) -> Optional[FAISS]:
         clean_temp_files(temp_files)
 
 
-def get_qa_chain(vectorstore: FAISS, groq_api_key: str):
+def get_qa_chain(vectorstore: FAISS):
     """
     Create QA chain with retriever using LCEL
     
     Args:
         vectorstore: FAISS vector store
-        groq_api_key: Groq API key
         
     Returns:
         QA chain with sources
@@ -196,11 +194,11 @@ def get_qa_chain(vectorstore: FAISS, groq_api_key: str):
             search_kwargs={"k": config.RETRIEVAL_K}
         )
         
-        # Initialize LLM
-        llm = ChatGroq(
-            model=config.GROQ_MODEL,
-            groq_api_key=groq_api_key,
-            temperature=config.LLM_TEMPERATURE
+        # Initialize LLM (uses OPENAI_API_KEY from environment)
+        llm = ChatOpenAI(
+            model=config.OPENAI_MODEL,
+            temperature=config.LLM_TEMPERATURE,
+            timeout=config.LLM_TIMEOUT,
         )
         
         # Create prompt template
@@ -262,8 +260,6 @@ Answer:"""
         logger.error(f"Error creating QA chain: {str(e)}")
         st.error(f"Error creating QA chain: {str(e)}")
         return None
-
-
 # Streamlit UI
 st.title(f"{config.PAGE_ICON} {config.PAGE_TITLE}")
 st.markdown("Upload your documents and chat with them!")
@@ -271,12 +267,6 @@ st.markdown("Upload your documents and chat with them!")
 # Sidebar for configuration
 with st.sidebar:
     #st.header("⚙️ Configuration")
-    
-    # API Key - automatically load from .env
-    groq_api_key = config.GROQ_API_KEY
-    if not groq_api_key:
-        st.warning("⚠️ Groq API Key not found in .env file")
-        logger.warning("API key not configured")
     
     st.markdown("---")
 
@@ -293,8 +283,6 @@ with st.sidebar:
     if st.button("Process Documents", type="primary"):
         if not uploaded_files:
             st.warning("Please upload at least one document.")
-        elif not groq_api_key:
-            st.warning("Please configure Groq API key in .env file.")
         else:
             st.session_state.processed_files = []
             st.session_state.vectorstore = process_documents(uploaded_files)
@@ -317,6 +305,10 @@ with st.sidebar:
 if st.session_state.vectorstore is None:
     st.info("👈 Please upload documents and click 'Process Documents' to start chatting.")
 else:
+    st.markdown("---")
+    st.subheader("💬 Chat with your documents")
+    st.caption("Type your question in the chat box at the bottom of the page.")
+
     # Display chat history
     for message in st.session_state.chat_history:
         with st.chat_message(message["role"]):
@@ -330,52 +322,47 @@ else:
             st.markdown(question)
         
         # Get response
-        if not groq_api_key:
-            with st.chat_message("assistant"):
-                st.error("Please configure Groq API key in .env file.")
-                logger.warning("Attempted query without API key")
-        else:
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    try:
-                        logger.info(f"Processing query: {question[:50]}...")
-                        
-                        qa_chain = get_qa_chain(st.session_state.vectorstore, groq_api_key)
-                        if qa_chain is None:
-                            raise Exception("Failed to create QA chain")
-                        
-                        response = qa_chain.invoke({"query": question})
-                        answer = response['result']
-                        
-                        st.markdown(answer)
-                        
-                        # Show sources (optional)
-                        if response['source_documents']:
-                            with st.expander("📚 View Sources"):
-                                for i, doc in enumerate(response['source_documents'], 1):
-                                    st.markdown(f"**Source {i}:**")
-                                    preview = truncate_text(
-                                        doc.page_content,
-                                        config.SOURCE_PREVIEW_LENGTH
-                                    )
-                                    st.text(preview)
-                                    st.markdown("---")
-                        
-                        # Add assistant response to chat
-                        st.session_state.chat_history.append({
-                            "role": "assistant",
-                            "content": answer
-                        })
-                        logger.info("Query processed successfully")
-                        
-                    except Exception as e:
-                        error_msg = f"Error: {str(e)}"
-                        logger.error(f"Query processing error: {str(e)}")
-                        st.error(error_msg)
-                        st.session_state.chat_history.append({
-                            "role": "assistant",
-                            "content": error_msg
-                        })
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    logger.info(f"Processing query: {question[:50]}...")
+                    
+                    qa_chain = get_qa_chain(st.session_state.vectorstore)
+                    if qa_chain is None:
+                        raise Exception("Failed to create QA chain")
+                    
+                    response = qa_chain.invoke({"query": question})
+                    answer = response['result']
+                    
+                    st.markdown(answer)
+                    
+                    # Show sources (optional)
+                    if response['source_documents']:
+                        with st.expander("📚 View Sources"):
+                            for i, doc in enumerate(response['source_documents'], 1):
+                                st.markdown(f"**Source {i}:**")
+                                preview = truncate_text(
+                                    doc.page_content,
+                                    config.SOURCE_PREVIEW_LENGTH
+                                )
+                                st.text(preview)
+                                st.markdown("---")
+                    
+                    # Add assistant response to chat
+                    st.session_state.chat_history.append({
+                        "role": "assistant",
+                        "content": answer
+                    })
+                    logger.info("Query processed successfully")
+                    
+                except Exception as e:
+                    error_msg = f"Error: {str(e)}"
+                    logger.error(f"Query processing error: {str(e)}")
+                    st.error(error_msg)
+                    st.session_state.chat_history.append({
+                        "role": "assistant",
+                        "content": error_msg
+                    })
 
 # Footer
 st.markdown("---")
@@ -383,7 +370,7 @@ st.markdown(
     """
     <div style='text-align: center'>
         <p style='color: #888; font-size: 0.9em;'>
-            Built with LangChain, Streamlit, and Groq
+            Built with LangChain, Streamlit, and OpenAI
         </p>
     </div>
     """,

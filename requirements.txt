@@ -5,7 +5,8 @@ streamlit>=1.28.0
 langchain>=0.1.0
 langchain-core>=0.1.14
 langchain-community>=0.0.34
-langchain-groq>=0.0.6
+langchain-openai
+openai
 
 # Vector databases and embeddings
 faiss-cpu>=1.7.4

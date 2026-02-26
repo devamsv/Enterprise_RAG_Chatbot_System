@@ -15,8 +15,8 @@ class Config:
     """Application configuration"""
     
     # API Settings
-    GROQ_API_KEY: Optional[str] = os.getenv("GROQ_API_KEY")
-    GROQ_MODEL: str = "llama-3.1-8b-instant"
+    OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
+    OPENAI_MODEL: str = "gpt-4.1-mini"
     
     # LLM Settings
     LLM_TEMPERATURE: float = 0.0
@@ -48,8 +48,8 @@ class Config:
     @classmethod
     def validate(cls) -> bool:
         """Validate configuration"""
-        if not cls.GROQ_API_KEY:
-            print("⚠️  Warning: GROQ_API_KEY not found in environment variables")
+        if not cls.OPENAI_API_KEY:
+            print("⚠️  Warning: OPENAI_API_KEY not found in environment variables")
             return False
         return True
 
