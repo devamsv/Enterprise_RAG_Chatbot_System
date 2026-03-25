@@ -1,46 +1,39 @@
 # -*- coding: utf-8 -*-
 """
-RAG Chatbot with Streamlit UI
-A production-ready Retrieval-Augmented Generation chatbot.
-
-Supports PDF, TXT, DOCX, and other document formats.
-Uses OpenAI's GPT model for intelligent responses.
+Customer Support Chatbot with Streamlit UI.
+Dataset-based Retrieval-Augmented Generation (RAG) using Gemini + HuggingFace embeddings.
 """
 
 import logging
 import os
-import tempfile
-from typing import Optional, List
+import time
+import hashlib
+import re
+from typing import Optional, List, Tuple, Dict, Any
 
 import streamlit as st
-from langchain_community.document_loaders import (
-    PyPDFLoader,
-    TextLoader,
-    Docx2txtLoader,
-    UnstructuredFileLoader
-)
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+import pandas as pd
 from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings.fake import FakeEmbeddings
-from langchain_openai import ChatOpenAI
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.prompts import PromptTemplate
-from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.documents import Document
 
 from config import config
 from utils import (
     setup_logging,
-    clean_temp_files,
     truncate_text,
-    get_file_extension
+    ensure_directory_exists
 )
 # Setup logging
 logger = setup_logging(config.LOG_LEVEL)
 
 # Validate configuration early and fail fast in the UI
-if not config.OPENAI_API_KEY:
-    logger.error("OPENAI_API_KEY not found in environment variables")
-    st.error("OPENAI_API_KEY not configured. Please set it in your .env file.")
+if not config.GOOGLE_API_KEY:
+    logger.error("GOOGLE_API_KEY not found in environment variables")
+    st.error("GOOGLE_API_KEY not configured. Please set it in your .env file.")
     st.stop()
 
 # Page configuration
@@ -51,160 +44,57 @@ st.set_page_config(
 )
 
 # Initialize session state
-if 'vectorstore' not in st.session_state:
-    st.session_state.vectorstore = None
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
-if 'processed_files' not in st.session_state:
-    st.session_state.processed_files = []
+if 'pending_question' not in st.session_state:
+    st.session_state.pending_question = None
+if 'satisfaction' not in st.session_state:
+    # Map: assistant_index(str) -> rating_value(float in [0,1])
+    st.session_state.satisfaction = {}
 
 
-def load_document(file_path: str, file_type: str) -> Optional[List]:
-    """
-    Load document based on file type
-    
-    Args:
-        file_path: Path to the document file
-        file_type: File type (pdf, txt, docx, doc)
-        
-    Returns:
-        List of documents or None if error
-    """
-    try:
-        logger.info(f"Loading {file_type} document from {file_path}")
-        
-        if file_type == "pdf":
-            loader = PyPDFLoader(file_path)
-        elif file_type == "txt":
-            # Try with UTF-8 encoding first, then fallback to latin-1
-            try:
-                loader = TextLoader(file_path, encoding="utf-8")
-            except (UnicodeDecodeError, LookupError):
-                logger.warning(f"UTF-8 failed for {file_path}, trying latin-1")
-                loader = TextLoader(file_path, encoding="latin-1")
-        elif file_type in ["docx", "doc"]:
-            loader = Docx2txtLoader(file_path)
-        else:
-            loader = UnstructuredFileLoader(file_path)
-        
-        documents = loader.load()
-        logger.info(f"Successfully loaded {len(documents)} documents")
-        return documents
-        
-    except Exception as e:
-        logger.error(f"Error loading file: {str(e)}")
-        st.error(f"Error loading file: {str(e)}")
-        return None
+# Streamlit UI
+st.title(f"{config.PAGE_ICON} {config.PAGE_TITLE}")
+st.subheader("Ask your query about orders / refund / login etc")
+st.caption("Answers are generated using the Customer Support dataset and Gemini.")
+
+# ---------- Data + RAG helpers ----------
+@st.cache_data(show_spinner=False)
+def load_customer_support_df(csv_path: str) -> pd.DataFrame:
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"Dataset CSV not found at: {csv_path}")
+
+    df = pd.read_csv(csv_path)
+    required_columns = {"question", "answer", "category"}
+    missing = required_columns - set(df.columns)
+    if missing:
+        raise ValueError(f"Dataset is missing required columns: {sorted(missing)}")
+
+    df["question"] = df["question"].fillna("").astype(str)
+    df["answer"] = df["answer"].fillna("").astype(str)
+    df["category"] = df["category"].fillna("General").astype(str)
+    return df
 
 
-def process_documents(uploaded_files: List) -> Optional[FAISS]:
-    """
-    Process uploaded documents and create vector store
-    
-    Args:
-        uploaded_files: List of uploaded file objects
-        
-    Returns:
-        FAISS vector store or None if error
-    """
-    all_docs = []
-    temp_files = []
-    
-    try:
-        with st.spinner("Processing documents..."):
-            logger.info(f"Starting to process {len(uploaded_files)} files")
-            
-            for uploaded_file in uploaded_files:
-                try:
-                    # Save uploaded file temporarily
-                    with tempfile.NamedTemporaryFile(
-                        delete=False, 
-                        suffix=f".{get_file_extension(uploaded_file.name)}"
-                    ) as tmp_file:
-                        tmp_file.write(uploaded_file.getvalue())
-                        tmp_file.flush()
-                        tmp_file_path = tmp_file.name
-                        temp_files.append(tmp_file_path)
-                    
-                    # Get file type
-                    file_type = get_file_extension(uploaded_file.name)
-                    
-                    # Load document
-                    docs = load_document(tmp_file_path, file_type)
-                    
-                    if docs:
-                        all_docs.extend(docs)
-                        st.session_state.processed_files.append(uploaded_file.name)
-                        logger.info(f"Added {len(docs)} documents from {uploaded_file.name}")
-                
-                except Exception as e:
-                    logger.error(f"Error processing {uploaded_file.name}: {str(e)}")
-                    st.warning(f"Failed to process {uploaded_file.name}: {str(e)}")
-                    continue
-            
-            if not all_docs:
-                logger.error("No documents were successfully loaded")
-                st.error("No documents were successfully loaded.")
-                return None
-            
-            logger.info(f"Total documents loaded: {len(all_docs)}")
-            
-            # Split documents into chunks
-            text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=config.CHUNK_SIZE,
-                chunk_overlap=config.CHUNK_OVERLAP,
-                length_function=len
-            )
-            chunks = text_splitter.split_documents(all_docs)
-            logger.info(f"Split documents into {len(chunks)} chunks")
-            
-            # Initialize embedding model
-            embedding_model = FakeEmbeddings(size=config.EMBEDDING_DIMENSION)
-            
-            # Create vector store using FAISS
-            vectorstore = FAISS.from_documents(
-                documents=chunks,
-                embedding=embedding_model
-            )
-            logger.info("Vector store created successfully")
-            
-            return vectorstore
-            
-    except Exception as e:
-        logger.error(f"Error in process_documents: {str(e)}")
-        st.error(f"Error processing documents: {str(e)}")
-        return None
-    finally:
-        # Clean up temp files
-        clean_temp_files(temp_files)
+@st.cache_resource(show_spinner=False)
+def get_embedding_model() -> HuggingFaceEmbeddings:
+    # Requirement: REAL embeddings
+    return HuggingFaceEmbeddings(model_name=config.HF_EMBEDDING_MODEL_NAME)
 
 
-def get_qa_chain(vectorstore: FAISS):
-    """
-    Create QA chain with retriever using LCEL
-    
-    Args:
-        vectorstore: FAISS vector store
-        
-    Returns:
-        QA chain with sources
-    """
-    try:
-        # Create retriever
-        retriever = vectorstore.as_retriever(
-            search_type=config.RETRIEVAL_SEARCH_TYPE,
-            search_kwargs={"k": config.RETRIEVAL_K}
-        )
-        
-        # Initialize LLM (uses OPENAI_API_KEY from environment)
-        llm = ChatOpenAI(
-            model=config.OPENAI_MODEL,
-            temperature=config.LLM_TEMPERATURE,
-            timeout=config.LLM_TIMEOUT,
-        )
-        
-        # Create prompt template
-        prompt_template = """You are a helpful AI assistant that answers questions based only on the provided context.
+@st.cache_resource(show_spinner=False)
+def get_llm() -> ChatGoogleGenerativeAI:
+    # Requirement: Gemini LLM
+    return ChatGoogleGenerativeAI(
+        model=config.GEMINI_MODEL,
+        temperature=config.LLM_TEMPERATURE,
+        google_api_key=config.GOOGLE_API_KEY,
+    )
+
+
+@st.cache_resource(show_spinner=False)
+def get_answer_chain():
+    prompt_template = """You are a helpful customer support assistant.
 
 Context:
 {context}
@@ -212,159 +102,308 @@ Context:
 Question: {question}
 
 Instructions:
-- Answer the question using only the information from the context above
-- If the answer is not in the context, say "I don't have enough information in the provided documents to answer this question."
-- Be concise and accurate
-- If relevant, quote specific parts from the context
+- Answer the question using only the information from the provided context.
+- If the answer is not in the context, say: "I don't have enough information in the provided dataset to answer this question."
+- Be concise and accurate.
 
 Answer:"""
-        
-        PROMPT = PromptTemplate(
-            template=prompt_template,
-            input_variables=["context", "question"]
-        )
-        
-        # Create QA chain using LCEL (LangChain Expression Language)
-        def format_docs(docs):
-            return "\n\n".join(doc.page_content for doc in docs)
-        
-        qa_chain = (
-            {
-                "context": retriever | format_docs,
-                "question": RunnablePassthrough()
-            }
-            | PROMPT
-            | llm
-            | StrOutputParser()
-        )
-        
-        # Return a wrapper that includes source documents
-        class QAChainWithSources:
-            """Wrapper to include source documents in response"""
-            
-            def __init__(self, chain, retriever):
-                self.chain = chain
-                self.retriever = retriever
-            
-            def invoke(self, inputs):
-                """Execute the chain and get sources"""
-                query = inputs.get("query") or inputs
-                result = self.chain.invoke(query)
-                source_documents = self.retriever.invoke(query)
-                return {
-                    "result": result,
-                    "source_documents": source_documents
-                }
-        
-        return QAChainWithSources(qa_chain, retriever)
-        
-    except Exception as e:
-        logger.error(f"Error creating QA chain: {str(e)}")
-        st.error(f"Error creating QA chain: {str(e)}")
-        return None
-# Streamlit UI
-st.title(f"{config.PAGE_ICON} {config.PAGE_TITLE}")
-st.markdown("Upload your documents and chat with them!")
 
-# Sidebar for configuration
+    prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
+    return prompt | get_llm() | StrOutputParser()
+
+
+def _distance_to_relevance(distance: float) -> float:
+    # FAISS "score" is typically a distance (smaller is better).
+    # Convert to a [0..1]-like relevance proxy.
+    d = float(distance)
+    d = abs(d)
+    return 1.0 / (1.0 + d)
+
+
+def _token_set(text: str) -> set:
+    return set(re.findall(r"\w+", text.lower()))
+
+
+def compute_precision_recall(
+    generated_answer: str,
+    expected_answer: str,
+) -> Dict[str, float]:
+    gen_tokens = _token_set(generated_answer)
+    exp_tokens = _token_set(expected_answer)
+    if not gen_tokens or not exp_tokens:
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
+
+    overlap = gen_tokens.intersection(exp_tokens)
+    precision = len(overlap) / max(len(gen_tokens), 1)
+    recall = len(overlap) / max(len(exp_tokens), 1)
+    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    return {"precision": precision, "recall": recall, "f1": f1}
+
+
+def build_documents_from_subset(df_subset: pd.DataFrame) -> List[Document]:
+    """
+    Create FAISS documents from the CSV answers.
+
+    To satisfy the "data preprocessing + chunking" requirement, we chunk each answer
+    into smaller passages (even though your CSV answers are short).
+    """
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=config.CHUNK_SIZE,
+        chunk_overlap=config.CHUNK_OVERLAP,
+        length_function=len,
+    )
+
+    docs: List[Document] = []
+    for question, answer, category in zip(
+        df_subset["question"].tolist(),
+        df_subset["answer"].tolist(),
+        df_subset["category"].tolist(),
+    ):
+        # Split answer into chunks; each chunk inherits the same metadata.
+        chunks = text_splitter.split_text(answer)
+        if not chunks:
+            chunks = [answer]
+
+        for chunk in chunks:
+            docs.append(
+                Document(
+                    page_content=chunk,
+                    metadata={
+                        "question": question,
+                        "answer": answer,  # keep full expected answer for evaluation
+                        "category": category,
+                    },
+                )
+            )
+
+    return docs
+
+
+@st.cache_resource(show_spinner=False)
+def get_vectorstore_for_categories(categories: Tuple[str, ...]) -> Tuple[FAISS, bool]:
+    df = load_customer_support_df(config.CUSTOMER_SUPPORT_CSV_PATH)
+
+    if not categories:
+        df_subset = df
+        categories_key = "all"
+    else:
+        df_subset = df[df["category"].isin(list(categories))]
+        categories_key = "|".join(sorted(categories))
+
+    index_id = hashlib.sha1(categories_key.encode("utf-8")).hexdigest()[:12]
+    index_path = os.path.join(config.VECTOR_STORE_DIR, index_id)
+
+    index_faiss_file = os.path.join(index_path, "index.faiss")
+    embeddings = get_embedding_model()
+
+    if os.path.exists(index_faiss_file):
+        vs = FAISS.load_local(
+            index_path,
+            embeddings,
+            allow_dangerous_deserialization=True,
+        )
+        return vs, True
+
+    ensure_directory_exists(index_path)
+    docs = build_documents_from_subset(df_subset)
+    vectorstore = FAISS.from_documents(documents=docs, embedding=embeddings)
+    vectorstore.save_local(index_path)
+    return vectorstore, False
+
+
+def answer_with_metrics(
+    query: str,
+    vectorstore: FAISS,
+):
+    chain = get_answer_chain()
+
+    # Retrieval latency + retrieved context
+    retrieval_start = time.time()
+    docs_and_scores = vectorstore.similarity_search_with_score(query, k=config.RETRIEVAL_K)
+    retrieval_latency = time.time() - retrieval_start
+
+    source_documents = [d for d, _score in docs_and_scores]
+    scores = [_score for _d, _score in docs_and_scores]
+    context_relevance = (
+        sum(_distance_to_relevance(s) for s in scores) / max(len(scores), 1)
+        if scores
+        else 0.0
+    )
+
+    context_text = "\n\n".join(
+        f"[{i + 1}] Category: {doc.metadata.get('category', 'General')}\n{doc.page_content}"
+        for i, doc in enumerate(source_documents)
+    )
+
+    generation_start = time.time()
+    answer = chain.invoke({"context": context_text, "question": query})
+    generation_latency = time.time() - generation_start
+
+    # Response accuracy proxy (token overlap with top retrieved answer)
+    expected_answer = ""
+    if source_documents:
+        expected_answer = source_documents[0].metadata.get("answer", source_documents[0].page_content)
+
+    pr = compute_precision_recall(answer, expected_answer)
+
+    return {
+        "answer": answer,
+        "source_documents": source_documents,
+        "metrics": {
+            "retrieval_latency_seconds": retrieval_latency,
+            "generation_latency_seconds": generation_latency,
+            "context_relevance": context_relevance,
+            "response_accuracy_proxy_f1": pr["f1"],
+            "precision": pr["precision"],
+            "recall": pr["recall"],
+        },
+    }
+
+
+# ---------- Sidebar ----------
 with st.sidebar:
-    #st.header("⚙️ Configuration")
-    
     st.markdown("---")
 
-    # File upload
-    st.header("📁 Upload Documents")
-    uploaded_files = st.file_uploader(
-        "Choose files",
-        type=config.ALLOWED_FILE_TYPES,
-        accept_multiple_files=True,
-        help=f"Upload {', '.join(config.ALLOWED_FILE_TYPES).upper()} files"
+    st.header("🎛️ Category Filter")
+    try:
+        df = load_customer_support_df(config.CUSTOMER_SUPPORT_CSV_PATH)
+        categories = sorted(df["category"].unique().tolist())
+    except Exception as e:
+        st.error(f"Dataset error: {e}")
+        st.stop()
+
+    selected_categories = st.multiselect(
+        "Choose categories",
+        options=categories,
+        default=categories,
+        help="Filter the dataset used for retrieval.",
     )
-    
-    # Process button
-    if st.button("Process Documents", type="primary"):
-        if not uploaded_files:
-            st.warning("Please upload at least one document.")
-        else:
-            st.session_state.processed_files = []
-            st.session_state.vectorstore = process_documents(uploaded_files)
-            if st.session_state.vectorstore:
-                st.success(f"✅ Processed {len(uploaded_files)} file(s) successfully!")
-    
-    # Display processed files
-    if st.session_state.processed_files:
-        st.markdown("---")
-        st.header("📄 Processed Files")
-        for i, file_name in enumerate(st.session_state.processed_files, 1):
-            st.text(f"{i}. ✓ {file_name}")
-    
-    # Clear chat button
+
+    st.header("🧩 Sample Questions")
+    sample_questions = [
+        "How can I track my order?",
+        "What is the return process?",
+        "How do I request a refund?",
+        "I forgot my password. What should I do?",
+        "How do I update my shipping address?",
+        "Can I cancel my order?",
+    ]
+    for q in sample_questions:
+        if st.button(q, use_container_width=True):
+            st.session_state.pending_question = q
+            st.rerun()
+
+    st.markdown("---")
+
     if st.button("🗑️ Clear Chat History"):
         st.session_state.chat_history = []
+        st.session_state.pending_question = None
         st.rerun()
 
 # Main chat interface
-if st.session_state.vectorstore is None:
-    st.info("👈 Please upload documents and click 'Process Documents' to start chatting.")
-else:
-    st.markdown("---")
-    st.subheader("💬 Chat with your documents")
-    st.caption("Type your question in the chat box at the bottom of the page.")
+st.markdown("---")
+st.subheader("💬 Customer Support Q&A")
+st.caption("Type your question in the chat box below (filtered by selected categories).")
 
-    # Display chat history
-    for message in st.session_state.chat_history:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-    
-    # Chat input
-    if question := st.chat_input("Ask a question about your documents..."):
-        # Add user message to chat
-        st.session_state.chat_history.append({"role": "user", "content": question})
-        with st.chat_message("user"):
-            st.markdown(question)
-        
-        # Get response
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                try:
-                    logger.info(f"Processing query: {question[:50]}...")
-                    
-                    qa_chain = get_qa_chain(st.session_state.vectorstore)
-                    if qa_chain is None:
-                        raise Exception("Failed to create QA chain")
-                    
-                    response = qa_chain.invoke({"query": question})
-                    answer = response['result']
-                    
-                    st.markdown(answer)
-                    
-                    # Show sources (optional)
-                    if response['source_documents']:
-                        with st.expander("📚 View Sources"):
-                            for i, doc in enumerate(response['source_documents'], 1):
-                                st.markdown(f"**Source {i}:**")
-                                preview = truncate_text(
-                                    doc.page_content,
-                                    config.SOURCE_PREVIEW_LENGTH
-                                )
-                                st.text(preview)
-                                st.markdown("---")
-                    
-                    # Add assistant response to chat
-                    st.session_state.chat_history.append({
-                        "role": "assistant",
-                        "content": answer
-                    })
-                    logger.info("Query processed successfully")
-                    
-                except Exception as e:
-                    error_msg = f"Error: {str(e)}"
-                    logger.error(f"Query processing error: {str(e)}")
-                    st.error(error_msg)
-                    st.session_state.chat_history.append({
-                        "role": "assistant",
-                        "content": error_msg
-                    })
+# Display chat history
+for message in st.session_state.chat_history:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+# User satisfaction score (subjective, collected via UI)
+assistant_count = sum(1 for m in st.session_state.chat_history if m.get("role") == "assistant")
+if assistant_count > 0:
+    assistant_index = str(assistant_count - 1)
+    rating_options = ["Not rated", "Helpful", "Not helpful"]
+
+    existing = st.session_state.satisfaction.get(assistant_index)
+    default_choice = "Not rated"
+    if existing is not None:
+        default_choice = "Helpful" if existing >= 0.5 else "Not helpful"
+
+    rating_choice = st.selectbox(
+        "User Satisfaction Score (proxy)",
+        rating_options,
+        index=rating_options.index(default_choice),
+        key=f"satisfaction_{assistant_index}",
+    )
+
+    if rating_choice == "Helpful":
+        st.session_state.satisfaction[assistant_index] = 1.0
+    elif rating_choice == "Not helpful":
+        st.session_state.satisfaction[assistant_index] = 0.0
+    else:
+        st.session_state.satisfaction.pop(assistant_index, None)
+
+    satisfaction_values = list(st.session_state.satisfaction.values())
+    satisfaction_avg = (
+        sum(satisfaction_values) / max(len(satisfaction_values), 1)
+        if satisfaction_values
+        else None
+    )
+    with st.expander("🧑‍💼 User Satisfaction Summary"):
+        st.write(
+            {
+                "Average satisfaction (proxy)": None if satisfaction_avg is None else round(satisfaction_avg, 3),
+                "Ratings collected": len(satisfaction_values),
+            }
+        )
+
+# If user clicked a sample question, process it as if it was submitted.
+question_from_button = st.session_state.pending_question
+if question_from_button is not None:
+    st.session_state.pending_question = None
+    question = question_from_button
+else:
+    question = st.chat_input("Ask about orders / refund / login ...")
+
+if question:
+    # Add user message to chat
+    st.session_state.chat_history.append({"role": "user", "content": question})
+    with st.chat_message("user"):
+        st.markdown(question)
+
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            try:
+                selected = selected_categories if selected_categories else categories
+                vectorstore, from_disk = get_vectorstore_for_categories(tuple(selected))
+
+                result = answer_with_metrics(question, vectorstore)
+                answer = result["answer"]
+
+                st.markdown(answer)
+                if config.SHOW_SOURCES:
+                    with st.expander("📚 View Sources"):
+                        for i, doc in enumerate(result["source_documents"], 1):
+                            st.markdown(f"**Source {i} (Category: {doc.metadata.get('category', 'General')}):**")
+                            preview = truncate_text(doc.page_content, config.SOURCE_PREVIEW_LENGTH)
+                            st.text(preview)
+                            st.markdown("---")
+
+                if config.SHOW_EVALUATION_METRICS:
+                    m = result["metrics"]
+                    with st.expander("📊 Evaluation Metrics"):
+                        st.write(
+                            {
+                                "Retrieval Latency (s)": round(m["retrieval_latency_seconds"], 4),
+                                "Context Relevance (proxy)": round(m["context_relevance"], 4),
+                                "Response Accuracy (proxy F1)": round(m["response_accuracy_proxy_f1"], 4),
+                                "Precision": round(m["precision"], 4),
+                                "Recall": round(m["recall"], 4),
+                                "Generation Latency (s)": round(m["generation_latency_seconds"], 4),
+                                "Vector Store": "Loaded from disk" if from_disk else "Built new",
+                            }
+                        )
+
+                st.session_state.chat_history.append({"role": "assistant", "content": answer})
+                logger.info("Query processed successfully")
+
+            except Exception as e:
+                error_msg = f"Error: {str(e)}"
+                logger.error(f"Query processing error: {str(e)}")
+                st.error(error_msg)
+                st.session_state.chat_history.append({"role": "assistant", "content": error_msg})
 
 # Footer
 st.markdown("---")
@@ -372,7 +411,7 @@ st.markdown(
     """
     <div style='text-align: center'>
         <p style='color: #888; font-size: 0.9em;'>
-            Built with LangChain, Streamlit, and OpenAI
+            Built with LangChain, Streamlit, and Gemini
         </p>
     </div>
     """,

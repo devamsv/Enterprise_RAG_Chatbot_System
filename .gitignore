@@ -49,7 +49,9 @@ Thumbs.db
 .DS_Store
 
 # Project specific
+# Vector DB indexes should not be committed (generated locally)
 vectorstore/
+vector_store/
 embeddings/
 models/
 

@@ -15,8 +15,12 @@ class Config:
     """Application configuration"""
     
     # API Settings
-    OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
-    OPENAI_MODEL: str = "gpt-4.1-mini"
+    GOOGLE_API_KEY: Optional[str] = os.getenv("GOOGLE_API_KEY")
+    # Use a model that is available on the current Gemini API account.
+    # (Your API key supports "gemini-flash-latest" / Gemini 2.5 models.)
+    # You can override via env var `GEMINI_MODEL`.
+    # Model available for generateContent with your API key.
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
     
     # LLM Settings
     LLM_TEMPERATURE: float = 0.0
@@ -30,26 +34,30 @@ class Config:
     RETRIEVAL_K: int = 3  # Number of documents to retrieve
     RETRIEVAL_SEARCH_TYPE: str = "similarity"
     
-    # Embedding Settings
-    EMBEDDING_DIMENSION: int = 384
-    
-    # File Upload Settings
-    MAX_FILE_SIZE_MB: int = 100
-    ALLOWED_FILE_TYPES: list = ["pdf", "txt", "docx", "doc"]
+    # Embedding Settings (REAL embeddings requirement)
+    HF_EMBEDDING_MODEL_NAME: str = "sentence-transformers/all-MiniLM-L6-v2"
+
+    # Dataset + Vector DB (persistent store)
+    CUSTOMER_SUPPORT_CSV_PATH: str = "customer_support.csv"
+    VECTOR_STORE_DIR: str = "vector_store"
     
     # UI Settings
-    PAGE_TITLE: str = "RAG Chatbot"
+    PAGE_TITLE: str = "Customer Support Chatbot"
     PAGE_ICON: str = "🤖"
     LAYOUT: str = "wide"
     
     # Text Display Settings
     SOURCE_PREVIEW_LENGTH: int = 300
+
+    # Metrics display controls
+    SHOW_SOURCES: bool = True
+    SHOW_EVALUATION_METRICS: bool = True
     
     @classmethod
     def validate(cls) -> bool:
         """Validate configuration"""
-        if not cls.OPENAI_API_KEY:
-            print("⚠️  Warning: OPENAI_API_KEY not found in environment variables")
+        if not cls.GOOGLE_API_KEY:
+            print("⚠️  Warning: GOOGLE_API_KEY not found in environment variables")
             return False
         return True
 

@@ -1,29 +1,66 @@
-# 🤖 Enterprise_RAG_Chatbot_System
+# 🤖 RAG-Based Customer Service Chatbot using Gemini
 
-A **production-grade** Retrieval-Augmented Generation (RAG) chatbot that allows you to upload documents (PDF, TXT, DOCX) and ask intelligent questions using natural language processing.
+A **production-grade** Retrieval-Augmented Generation (RAG) chatbot that answers customer support questions using a structured `customer_support.csv` dataset (orders / refunds / login, etc.) with Gemini + real HuggingFace embeddings.
+
+This project focuses on building a smart customer support chatbot using a Retrieval-Augmented Generation (RAG) pipeline powered by the Gemini LLM. The goal is to provide fast, accurate, and context-aware responses by retrieving relevant information from a company knowledge base instead of relying on static FAQ systems.
+
+## 🔹 Key Objectives
+
+- Implement a RAG architecture for intelligent query handling
+- Integrate Gemini LLM for human-like response generation
+- Use vector databases (FAISS / Pinecone / ChromaDB) for similarity search
+- Build a chatbot interface using Streamlit or Flask
+- Evaluate chatbot performance using metrics like accuracy, latency, and user satisfaction
+
+## 🔹 Project Approach
+
+- **Data Collection**: Gather FAQs, chat logs, manuals, or support documents.
+- **Preprocessing**: Clean and chunk text data for better retrieval.
+- **Embedding Generation**: Convert text into vector embeddings using sentence transformer models.
+- **Vector Storage**: Store embeddings in a vector database.
+- **Query Processing**: Retrieve relevant context based on user queries.
+- **Response Generation**: Use Gemini LLM to generate contextual answers.
+- **Frontend Development**: Create a chatbot UI for interaction.
+- **Evaluation**: Measure response relevance, speed, and overall performance.
+
+## 🔹 Business Use Cases
+
+- Automating customer support queries
+- Assisting e-commerce customers (order tracking, returns)
+- Banking helpdesk (balance, loans, card issues)
+- Travel support (ticket details, refunds)
+- IT helpdesk query resolution
+
+## 🔹 Expected Outcomes
+
+- Build a fully functional domain-specific RAG chatbot
+- Improve response accuracy and reduce latency compared to traditional FAQ bots
+- Enable real-world deployment in customer service environments
+- Gain hands-on skills in LLMs, NLP, vector search, prompt engineering, and chatbot deployment
 
 ## ✨ Features
 
-- **Multi-format Support**: Upload PDF, TXT, DOCX documents
-- **AI-Powered**: Uses OpenAI's GPT model for intelligent responses
-- **Source Citations**: View the exact passages used to generate answers
-- **Clean UI**: Intuitive Streamlit-based interface
-- **Context-Aware**: Answers strictly based on your documents
-- **Production Ready**: Comprehensive logging, error handling, configuration management
-- **Scalable**: Uses FAISS for efficient vector storage
-- **Type Safe**: Full Python type hints throughout
+- **Customer Support Dataset**: Uses `customer_support.csv` (question/answer/category) as the single data source
+- **Gemini LLM**: Uses `langchain-google-genai` for response generation
+- **Category Filtering**: Filter retrieval by `Order`, `Refund`, `Return`, `Login`, etc.
+- **Sample Questions**: One-click prompts for common support intents
+- **Chat History**: Conversation persists during the Streamlit session
+- **Evaluation Metrics (UI)**: Retrieval latency, context relevance, response accuracy proxy (F1), and Precision/Recall
+- **User Satisfaction Score (UI)**: Optional subjective helpfulness rating collected after each answer
+- **Persistent Vector DB**: FAISS indexes are saved to disk and reloaded on demand
+- **Source Citations**: Shows retrieved context passages used for the answer
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 - Python 3.8+
-- OpenAI API key (from [platform.openai.com](https://platform.openai.com))
+- Google (Gemini) API key as `GOOGLE_API_KEY` (from [ai.google.dev](https://ai.google.dev/))
 
 ### Installation
 
 ```bash
 # 1. Clone/download the project
-cd Enterprise_RAG_Chatbot_System  # or your project directory
+cd "RAG-Based Customer Service Chatbot using Gemini (Gen AI)"
 
 # 2. Create virtual environment
 python -m venv venv
@@ -35,7 +72,7 @@ pip install -r requirements.txt
 
 # 4. Setup environment
 cp .env.example .env
-# Edit .env and add your OPENAI_API_KEY
+# Edit .env and add your GOOGLE_API_KEY
 
 # 5. Run the application
 streamlit run rag_chatbot.py
@@ -44,16 +81,14 @@ streamlit run rag_chatbot.py
 The app opens at `http://localhost:8501`
 
 ## 📖 Usage
-
-1. **Upload Documents**: Select one or more files (PDF, TXT, DOCX)
-2. **Process**: Click "Process Documents" button
-3. **Chat**: Ask questions about your documents
-4. **Cite**: Expand "View Sources" to see source references
+1. **Filter Categories**: Choose `Order` / `Refund` / `Return` / `Login` (etc.) in the sidebar
+2. **Ask a Question**: Type your query or click a sample question
+3. **Cite & Evaluate**: Expand `View Sources` and `Evaluation Metrics` to see retrieval + proxy accuracy
 
 ## 🏗️ Project Structure
 
 ```
-Enterprise_RAG_Chatbot_System/
+RAG-Based Customer Service Chatbot using Gemini (Gen AI)/
 ├── rag_chatbot.py          # Main Streamlit application
 ├── config.py               # Configuration management
 ├── utils.py                # Utility functions
@@ -77,7 +112,7 @@ RETRIEVAL_K = 3             # Number of sources to retrieve
 
 # Language Model
 LLM_TEMPERATURE = 0.0       # 0 = deterministic, 1 = random
-OPENAI_MODEL = "gpt-4.1-mini"
+GEMINI_MODEL = "gemini-flash-latest"
 
 # Logging
 LOG_LEVEL = "INFO"          # DEBUG, INFO, WARNING, ERROR
@@ -86,24 +121,42 @@ LOG_LEVEL = "INFO"          # DEBUG, INFO, WARNING, ERROR
 ## 📊 How It Works
 
 ```
-Documents → Load → Split into Chunks → Embed → Store in FAISS
-                                         ↓
-                            Query → Retrieve Similar → LLM → Answer
+customer_support.csv → Read (question/answer/category) → Embed → Store in FAISS
+                                                 ↓
+                            User → Query → Retrieve Similar → Gemini → Answer
 ```
 
-1. **Load**: Documents loaded with proper encoding detection
-2. **Split**: Text split into overlapping chunks  
-3. **Embed**: Chunks converted to vector embeddings
-4. **Store**: Vectors indexed in FAISS database
-5. **Search**: Retrieve most similar chunks for query
-6. **Generate**: LLM creates answer from context
+1. **Load**: Read `customer_support.csv` (question/answer/category)
+2. **Chunk**: Answers are split into smaller passages for retrieval
+3. **Embed**: Chunks converted to vector embeddings using HuggingFace
+4. **Store**: Vectors indexed in FAISS (saved locally for persistence)
+5. **Filter/Retrieve**: Select categories, then retrieve the most similar chunks
+6. **Generate**: Gemini generates a response strictly from retrieved context
+
+## 🧠 System Architecture Diagram
+
+```mermaid
+flowchart LR
+    U[User] --> Q[Query]
+    Q --> E[Embed (HuggingFace)]
+    E --> R[Retrieve (FAISS)]
+    R --> G[Gemini LLM]
+    G --> A[Response]
+```
+
+## 🏬 Real Business Use Case
+
+This chatbot helps e-commerce customers resolve common support requests automatically by answering from an internal knowledge dataset:
+- Track orders and shipment status
+- Guide refund/return workflows and timelines
+- Fix login issues (forgot password, email updates)
+
+It also exposes retrieval latency, context relevance, and a response accuracy proxy to support evaluation during demos and final submissions.
 
 ## 🔑 Getting API Key
-
-1. Visit [platform.openai.com](https://platform.openai.com)
-2. Sign up or login
-3. Create new API key
-4. Add to `.env`: `OPENAI_API_KEY=your_key_here`
+1. Visit [ai.google.dev](https://ai.google.dev/)
+2. Create/enable a Gemini API key
+3. Add to `.env`: `GOOGLE_API_KEY=your_key_here`
 
 ## 🐛 Troubleshooting
 
@@ -115,15 +168,32 @@ Documents → Load → Split into Chunks → Embed → Store in FAISS
 | Import errors | Run `pip install -r requirements.txt` |
 | Memory issues | Process fewer files at once |
 
-## 📁 File Support
+## 📁 Dataset Support
 
-| Format | Extension | Status |
-|--------|-----------|--------|
-| PDF | `.pdf` | ✅ Supported |
-| Text | `.txt` | ✅ Supported (UTF-8, Latin-1) |
-| Word | `.docx`, `.doc` | ✅ Supported |
+| Format | File | Status |
+|--------|------|--------|
+| CSV | `customer_support.csv` | ✅ Required |
 
 ## 🚀 Deployment Notes
+
+## 🧾 Report (Summary of Results)
+
+For your submission report, capture results from the app’s UI:
+
+- For 5-10 test questions (use the sample questions + your own), record:
+  - `Retrieval Latency (s)` (FAISS similarity search time)
+  - `Generation Latency (s)` (Gemini response generation time)
+  - `Context Relevance (proxy)` (FAISS score-based proxy)
+  - `Response Accuracy (proxy F1)` (token overlap vs. expected answer)
+  - `Precision` and `Recall` (retrieval proxy)
+  - `User Satisfaction Score (proxy)` (Helpful = 1, Not helpful = 0, average shown in the UI)
+
+- Add 1-2 lines on observed strengths/weaknesses (e.g., which categories answered best).
+
+- Include screenshots of:
+  - The chatbot conversation
+  - The `📊 Evaluation Metrics` expander
+  - The `🧑‍💼 User Satisfaction Summary` expander
 
 ### Logging
 Application includes comprehensive logging:
@@ -138,15 +208,14 @@ Application includes comprehensive logging:
 - File encoding fallback (UTF-8 → Latin-1)
 
 ### Performance Characteristics
-- In-memory FAISS for fast vector similarity search
-- Default `FakeEmbeddings` for quick demos and testing
-- Session-level caching of processed documents in Streamlit
+- Persistent FAISS vector indexes saved to disk and reloaded on demand
+- Real semantic embeddings using `HuggingFaceEmbeddings` (sentence-transformers)
+- Streamlit caching for faster subsequent queries (dataset + embeddings + indexes)
 
 ## 🔐 Security
 
 - API keys only in `.env` (not in code)
-- Temp files automatically deleted
-- Input validation on file uploads
+- Dataset schema validated at startup (question/answer/category)
 - No sensitive data in logs
 - `.gitignore` prevents key exposure
 
@@ -156,41 +225,28 @@ Application includes comprehensive logging:
 |-----------|-----------|---------|
 | UI | Streamlit | Web interface |
 | RAG | LangChain | Orchestration |
-| LLM | OpenAI API | Language model |
+| LLM | Gemini API (via `langchain-google-genai`) | Language model |
 | Vectors | FAISS | Similarity search |
-| Embeddings | FakeEmbeddings | Vector representation |
-| PDF | PyPDF | PDF processing |
-| Word | docx2txt | DOCX processing |
+| Embeddings | HuggingFaceEmbeddings | Vector representation |
+| Data | `customer_support.csv` | Customer support answers (question/answer/category) |
 
-## 🔄 Upgrading Embeddings
+## 🔄 Embeddings Configuration
 
-To use real embeddings (HuggingFace/OpenAI):
+This project uses real HuggingFace sentence-transformers embeddings:
+`sentence-transformers/all-MiniLM-L6-v2`.
 
-```python
-# In config.py
-from langchain_community.embeddings import HuggingFaceEmbeddings
-
-# In rag_chatbot.py, replace:
-embedding_model = FakeEmbeddings(size=config.EMBEDDING_DIMENSION)
-
-# With:
-embedding_model = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
-)
-```
-
-Note: This requires additional dependencies and disk space.
+FAISS indexes are persisted to `vector_store/` and reloaded to improve production readiness.
 
 ## 📖 Dependencies
 
 Core packages:
 - `streamlit>=1.28.0` - UI framework
 - `langchain>=0.1.0` - RAG framework
-- `langchain-openai` - OpenAI integration
+- `langchain-google-genai` - Gemini integration
 - `faiss-cpu>=1.7.4` - Vector search
-- `pypdf>=4.0.1` - PDF reading
-- `docx2txt>=0.8` - DOCX reading  
 - `python-dotenv>=1.0.0` - Environment management
+- `pandas>=2.0.0` - Dataset handling
+- `sentence-transformers` - Real embeddings
 
 See `requirements.txt` for complete list.
 
@@ -214,7 +270,7 @@ streamlit run rag_chatbot.py
 
 ## 📝 Example Queries
 
-After uploading documents, try:
+Try a few intent-based queries:
 - "What are the main topics covered?"
 - "Summarize the key findings"
 - "What does it say about [topic]?"
@@ -252,6 +308,6 @@ Contributions welcome! Areas for improvement:
 
 ---
 
-**Built with** ❤️ using LangChain, Streamlit, and OpenAI
+**Built with** ❤️ using LangChain, Streamlit, and Gemini
 
-Last Updated: February 2024
+Last Updated: March 2026
